@@ -75,10 +75,52 @@ type OperatorServiceClient interface {
 	RemoveSearchAttributes(ctx context.Context, in *operatorservice.RemoveSearchAttributesRequest, opts ...grpc.CallOption) (*operatorservice.RemoveSearchAttributesResponse, error)
 }
 
+// parseDesiredAttributes converts the spec's string type map into typed IndexedValueType map.
+func parseDesiredAttributes(spec map[string]string) (map[string]enumsv1.IndexedValueType, error) {
+	desired := make(map[string]enumsv1.IndexedValueType, len(spec))
+	for name, typeStr := range spec {
+		t, err := SearchAttributeTypeFromString(typeStr)
+		if err != nil {
+			return nil, fmt.Errorf("search attribute %q: %w", name, err)
+		}
+		desired[name] = t
+	}
+	return desired, nil
+}
+
+// computeAttributesToAdd returns attributes present in desired but not in existing,
+// and returns an error if any existing attribute has a type mismatch.
+func computeAttributesToAdd(desired, existing map[string]enumsv1.IndexedValueType) (map[string]enumsv1.IndexedValueType, error) {
+	toAdd := make(map[string]enumsv1.IndexedValueType)
+	for name, desiredType := range desired {
+		existingType, exists := existing[name]
+		if !exists {
+			toAdd[name] = desiredType
+			continue
+		}
+		if existingType != desiredType {
+			existingTypeName, _ := SearchAttributeTypeToString(existingType)
+			desiredTypeName, _ := SearchAttributeTypeToString(desiredType)
+			return nil, fmt.Errorf("search attribute %q has type %s on server but %s in spec; Temporal does not allow type changes", name, existingTypeName, desiredTypeName)
+		}
+	}
+	return toAdd, nil
+}
+
+// computeAttributesToRemove returns attribute names present in existing but not in desired.
+func computeAttributesToRemove(desired, existing map[string]enumsv1.IndexedValueType) []string {
+	var toRemove []string
+	for name := range existing {
+		if _, inSpec := desired[name]; !inSpec {
+			toRemove = append(toRemove, name)
+		}
+	}
+	return toRemove
+}
+
 // ReconcileSearchAttributes ensures the custom search attributes on the Temporal server
 // match the desired state declared in the TemporalNamespace spec.
 func ReconcileSearchAttributes(ctx context.Context, operatorSvc OperatorServiceClient, namespace *v1beta1.TemporalNamespace) error {
-	// 1. List current custom attributes from server.
 	listResp, err := operatorSvc.ListSearchAttributes(ctx, &operatorservice.ListSearchAttributesRequest{
 		Namespace: namespace.GetName(),
 	})
@@ -88,43 +130,21 @@ func ReconcileSearchAttributes(ctx context.Context, operatorSvc OperatorServiceC
 
 	existing := listResp.GetCustomAttributes()
 
-	// 2. Parse desired spec into map[string]IndexedValueType.
-	desired := make(map[string]enumsv1.IndexedValueType, len(namespace.Spec.CustomSearchAttributes))
-	for name, typeStr := range namespace.Spec.CustomSearchAttributes {
-		t, err := SearchAttributeTypeFromString(typeStr)
-		if err != nil {
-			return fmt.Errorf("search attribute %q: %w", name, err)
-		}
-		desired[name] = t
+	desired, err := parseDesiredAttributes(namespace.Spec.CustomSearchAttributes)
+	if err != nil {
+		return err
 	}
 
-	// 3. Detect type mismatches and compute adds.
-	toAdd := make(map[string]enumsv1.IndexedValueType)
-	for name, desiredType := range desired {
-		existingType, exists := existing[name]
-		if exists {
-			if existingType != desiredType {
-				existingTypeName, _ := SearchAttributeTypeToString(existingType)
-				desiredTypeName, _ := SearchAttributeTypeToString(desiredType)
-				return fmt.Errorf("search attribute %q has type %s on server but %s in spec; Temporal does not allow type changes", name, existingTypeName, desiredTypeName)
-			}
-			// Already exists with correct type, nothing to do.
-			continue
-		}
-		toAdd[name] = desiredType
+	toAdd, err := computeAttributesToAdd(desired, existing)
+	if err != nil {
+		return err
 	}
 
-	// 4. Compute removals (only if AllowSearchAttributeDeletion is true).
 	var toRemove []string
 	if namespace.Spec.AllowSearchAttributeDeletion {
-		for name := range existing {
-			if _, inSpec := desired[name]; !inSpec {
-				toRemove = append(toRemove, name)
-			}
-		}
+		toRemove = computeAttributesToRemove(desired, existing)
 	}
 
-	// 5. Add new attributes.
 	if len(toAdd) > 0 {
 		_, err := operatorSvc.AddSearchAttributes(ctx, &operatorservice.AddSearchAttributesRequest{
 			SearchAttributes: toAdd,
@@ -135,7 +155,6 @@ func ReconcileSearchAttributes(ctx context.Context, operatorSvc OperatorServiceC
 		}
 	}
 
-	// 6. Remove stale attributes.
 	if len(toRemove) > 0 {
 		_, err := operatorSvc.RemoveSearchAttributes(ctx, &operatorservice.RemoveSearchAttributesRequest{
 			SearchAttributes: toRemove,

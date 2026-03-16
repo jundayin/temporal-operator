@@ -31,6 +31,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const testNamespace = "test-ns"
+
 // mockOperatorServiceClient is a mock for testing.
 type mockOperatorServiceClient struct {
 	listResponse *operatorservice.ListSearchAttributesResponse
@@ -38,9 +40,9 @@ type mockOperatorServiceClient struct {
 	addError     error
 	removeError  error
 
-	addCalled    bool
-	removeCalled bool
-	addRequest   *operatorservice.AddSearchAttributesRequest
+	addCalled     bool
+	removeCalled  bool
+	addRequest    *operatorservice.AddSearchAttributesRequest
 	removeRequest *operatorservice.RemoveSearchAttributesRequest
 }
 
@@ -120,9 +122,9 @@ func TestSearchAttributeTypeToString(t *testing.T) {
 	}
 }
 
-func newNamespace(name string, attrs map[string]string, allowDeletion bool) *v1beta1.TemporalNamespace {
+func newNamespace(attrs map[string]string, allowDeletion bool) *v1beta1.TemporalNamespace {
 	return &v1beta1.TemporalNamespace{
-		ObjectMeta: metav1.ObjectMeta{Name: name},
+		ObjectMeta: metav1.ObjectMeta{Name: testNamespace},
 		Spec: v1beta1.TemporalNamespaceSpec{
 			CustomSearchAttributes:       attrs,
 			AllowSearchAttributeDeletion: allowDeletion,
@@ -139,7 +141,7 @@ func TestReconcileSearchAttributes(t *testing.T) {
 				CustomAttributes: map[string]enumsv1.IndexedValueType{},
 			},
 		}
-		ns := newNamespace("test-ns", map[string]string{
+		ns := newNamespace(map[string]string{
 			"CustomerId": "Keyword",
 			"OrderTotal": "Double",
 		}, false)
@@ -152,7 +154,7 @@ func TestReconcileSearchAttributes(t *testing.T) {
 			"CustomerId": enumsv1.INDEXED_VALUE_TYPE_KEYWORD,
 			"OrderTotal": enumsv1.INDEXED_VALUE_TYPE_DOUBLE,
 		}, mock.addRequest.SearchAttributes)
-		assert.Equal(t, "test-ns", mock.addRequest.Namespace)
+		assert.Equal(t, testNamespace, mock.addRequest.Namespace)
 	})
 
 	t.Run("remove stale with flag on", func(t *testing.T) {
@@ -163,7 +165,7 @@ func TestReconcileSearchAttributes(t *testing.T) {
 				},
 			},
 		}
-		ns := newNamespace("test-ns", map[string]string{}, true)
+		ns := newNamespace(map[string]string{}, true)
 
 		err := ReconcileSearchAttributes(ctx, mock, ns)
 		require.NoError(t, err)
@@ -180,7 +182,7 @@ func TestReconcileSearchAttributes(t *testing.T) {
 				},
 			},
 		}
-		ns := newNamespace("test-ns", map[string]string{}, false)
+		ns := newNamespace(map[string]string{}, false)
 
 		err := ReconcileSearchAttributes(ctx, mock, ns)
 		require.NoError(t, err)
@@ -196,7 +198,7 @@ func TestReconcileSearchAttributes(t *testing.T) {
 				},
 			},
 		}
-		ns := newNamespace("test-ns", map[string]string{
+		ns := newNamespace(map[string]string{
 			"CustomerId": "Keyword",
 		}, false)
 
@@ -215,7 +217,7 @@ func TestReconcileSearchAttributes(t *testing.T) {
 				},
 			},
 		}
-		ns := newNamespace("test-ns", map[string]string{
+		ns := newNamespace(map[string]string{
 			"Existing": "Keyword",
 			"NewAttr":  "Bool",
 		}, true)
@@ -238,7 +240,7 @@ func TestReconcileSearchAttributes(t *testing.T) {
 				},
 			},
 		}
-		ns := newNamespace("test-ns", map[string]string{
+		ns := newNamespace(map[string]string{
 			"CustomerId": "Keyword",
 		}, false)
 
@@ -255,7 +257,7 @@ func TestReconcileSearchAttributes(t *testing.T) {
 				CustomAttributes: map[string]enumsv1.IndexedValueType{},
 			},
 		}
-		ns := newNamespace("test-ns", map[string]string{
+		ns := newNamespace(map[string]string{
 			"CustomerId": "InvalidType",
 		}, false)
 
@@ -269,7 +271,7 @@ func TestReconcileSearchAttributes(t *testing.T) {
 		mock := &mockOperatorServiceClient{
 			listError: fmt.Errorf("connection refused"),
 		}
-		ns := newNamespace("test-ns", map[string]string{
+		ns := newNamespace(map[string]string{
 			"CustomerId": "Keyword",
 		}, false)
 
@@ -285,7 +287,7 @@ func TestReconcileSearchAttributes(t *testing.T) {
 			},
 			addError: fmt.Errorf("server error"),
 		}
-		ns := newNamespace("test-ns", map[string]string{
+		ns := newNamespace(map[string]string{
 			"CustomerId": "Keyword",
 		}, false)
 
@@ -303,7 +305,7 @@ func TestReconcileSearchAttributes(t *testing.T) {
 			},
 			removeError: fmt.Errorf("removal failed"),
 		}
-		ns := newNamespace("test-ns", map[string]string{}, true)
+		ns := newNamespace(map[string]string{}, true)
 
 		err := ReconcileSearchAttributes(ctx, mock, ns)
 		assert.Error(t, err)
