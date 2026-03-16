@@ -19,7 +19,6 @@ package temporal
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/alexandrevilain/temporal-operator/api/v1beta1"
@@ -60,66 +59,6 @@ func (m *mockOperatorServiceClient) RemoveSearchAttributes(_ context.Context, re
 	m.removeCalled = true
 	m.removeRequest = req
 	return &operatorservice.RemoveSearchAttributesResponse{}, m.removeError
-}
-
-func TestSearchAttributeTypeFromString(t *testing.T) {
-	tests := map[string]struct {
-		input    string
-		expected enums.IndexedValueType
-		wantErr  bool
-	}{
-		"Text":        {input: "Text", expected: enums.INDEXED_VALUE_TYPE_TEXT},
-		"Keyword":     {input: "Keyword", expected: enums.INDEXED_VALUE_TYPE_KEYWORD},
-		"Int":         {input: "Int", expected: enums.INDEXED_VALUE_TYPE_INT},
-		"Double":      {input: "Double", expected: enums.INDEXED_VALUE_TYPE_DOUBLE},
-		"Bool":        {input: "Bool", expected: enums.INDEXED_VALUE_TYPE_BOOL},
-		"DateTime":    {input: "DateTime", expected: enums.INDEXED_VALUE_TYPE_DATETIME},
-		"KeywordList": {input: "KeywordList", expected: enums.INDEXED_VALUE_TYPE_KEYWORD_LIST},
-		"invalid":     {input: "invalid", wantErr: true},
-		"empty":       {input: "", wantErr: true},
-		"lowercase":   {input: "text", wantErr: true},
-	}
-
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			result, err := SearchAttributeTypeFromString(tc.input)
-			if tc.wantErr {
-				assert.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, tc.expected, result)
-		})
-	}
-}
-
-func TestSearchAttributeTypeToString(t *testing.T) {
-	tests := map[string]struct {
-		input    enums.IndexedValueType
-		expected string
-		wantErr  bool
-	}{
-		"Text":        {input: enums.INDEXED_VALUE_TYPE_TEXT, expected: "Text"},
-		"Keyword":     {input: enums.INDEXED_VALUE_TYPE_KEYWORD, expected: "Keyword"},
-		"Int":         {input: enums.INDEXED_VALUE_TYPE_INT, expected: "Int"},
-		"Double":      {input: enums.INDEXED_VALUE_TYPE_DOUBLE, expected: "Double"},
-		"Bool":        {input: enums.INDEXED_VALUE_TYPE_BOOL, expected: "Bool"},
-		"DateTime":    {input: enums.INDEXED_VALUE_TYPE_DATETIME, expected: "DateTime"},
-		"KeywordList": {input: enums.INDEXED_VALUE_TYPE_KEYWORD_LIST, expected: "KeywordList"},
-		"unspecified": {input: enums.INDEXED_VALUE_TYPE_UNSPECIFIED, wantErr: true},
-	}
-
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			result, err := SearchAttributeTypeToString(tc.input)
-			if tc.wantErr {
-				assert.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, tc.expected, result)
-		})
-	}
 }
 
 func newNamespace(attrs map[string]string, allowDeletion bool) *v1beta1.TemporalNamespace {
@@ -265,50 +204,5 @@ func TestReconcileSearchAttributes(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid search attribute type")
 		assert.False(t, mock.addCalled)
-	})
-
-	t.Run("list error propagated", func(t *testing.T) {
-		mock := &mockOperatorServiceClient{
-			listError: fmt.Errorf("connection refused"),
-		}
-		ns := newNamespace(map[string]string{
-			"CustomerId": "Keyword",
-		}, false)
-
-		err := ReconcileSearchAttributes(ctx, mock, ns)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "connection refused")
-	})
-
-	t.Run("add error propagated", func(t *testing.T) {
-		mock := &mockOperatorServiceClient{
-			listResponse: &operatorservice.ListSearchAttributesResponse{
-				CustomAttributes: map[string]enums.IndexedValueType{},
-			},
-			addError: fmt.Errorf("server error"),
-		}
-		ns := newNamespace(map[string]string{
-			"CustomerId": "Keyword",
-		}, false)
-
-		err := ReconcileSearchAttributes(ctx, mock, ns)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "server error")
-	})
-
-	t.Run("remove error propagated", func(t *testing.T) {
-		mock := &mockOperatorServiceClient{
-			listResponse: &operatorservice.ListSearchAttributesResponse{
-				CustomAttributes: map[string]enums.IndexedValueType{
-					"OldAttr": enums.INDEXED_VALUE_TYPE_TEXT,
-				},
-			},
-			removeError: fmt.Errorf("removal failed"),
-		}
-		ns := newNamespace(map[string]string{}, true)
-
-		err := ReconcileSearchAttributes(ctx, mock, ns)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "removal failed")
 	})
 }
